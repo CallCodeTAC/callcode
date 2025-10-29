@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CallCode — Salesforce #call calculator</title>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+<style>
+:root{
+  --bg:#0f1724;
+  --card:#0b1220;
+  --muted:#94a3b8;
+  --accent:#38bdf8;
+  --glass: rgba(255,255,255,0.03);
+}
+
+* { box-sizing: border-box; }
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:#e6eef8;
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial;
+}
+
+.wrap{
+  width:100%;
+  max-width:760px;
+  background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border-radius:12px;
+  padding:20px;
+  box-shadow:0 8px 30px rgba(2,6,23,0.7);
+}
+
+header{text-align:center;margin-bottom:20px}
+
+.logo-container{
+  display:inline-block;
+  padding:12px;
+  background:var(--card);
+  border-radius:12px;
+  margin-bottom:12px;
+  box-shadow:0 4px 12px rgba(0,0,0,0.2);
+}
+
+header img{max-width:180px;border-radius:8px}
+
+h1{margin:0;font-size:24px;color:var(--accent)}
+
+p.lead{margin:6px 0 18px;color:var(--muted);font-size:13px}
+
+.grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:16px;
+}
+
+.card{
+  background: var(--card);
+  border-radius:12px;
+  padding:16px;
+  display:flex;
+  flex-direction: column;
+  gap:12px;
+  min-height:220px;
+}
+
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+
+select,input[type=datetime-local],input[type=date],input[type=time],input[type=number]{
+  width:100%;
+  padding:10px;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,0.03);
+  background:rgba(255,255,255,0.03);
+  color:inherit;
+}
+
+.row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.btn{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 12px;
+  border-radius:8px;
+  border:0;
+  background:linear-gradient(90deg,var(--accent),#60a5fa);
+  color:#021124;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.btn.alt{
+  background:transparent;
+  color:var(--accent);
+  border:1px solid rgba(56,189,248,0.12);
+}
+
+.output{
+  font-family:monospace;
+  background:rgba(0,0,0,0.12);
+  padding:10px;
+  border-radius:8px;
+  width:100%;
+  font-size:16px;
+  word-wrap:break-word;
+  min-height:48px;
+}
+
+footer{
+  margin-top:14px;
+  color:var(--muted);
+  font-size:13px;
+  text-align:center;
+}
+
+@media (max-width:820px){
+  .grid{
+    grid-template-columns:1fr;
+  }
+}
+</style>
+</head>
+<body>
+<div class="wrap" id="appWrap">
+  <header>
+    <div class="logo-container">
+      <img src="CallCodeLogo.png" alt="CallCode Logo">
+    </div>
+    <h1>CallCode</h1>
+    <p class="lead">Generate <code>#call &lt;minutes&gt;</code> for Salesforce quickly</p>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <label for="baseZone">Base timezone</label>
+      <select id="baseZone">
+        <option value="America/Los_Angeles" selected>PST — America/Los_Angeles</option>
+        <option value="America/Chicago">CST — America/Chicago</option>
+        <option value="America/Argentina/Buenos_Aires">ART — America/Argentina/Buenos_Aires</option>
+        <option value="UTC">UTC</option>
+        <option value="Europe/London">Europe/London</option>
+      </select>
+
+      <label for="targetDate">Target date</label>
+      <input id="targetDate" type="date" />
+
+      <label for="targetTime">Target time</label>
+      <input id="targetTime" type="time" />
+
+      <label>Quick add days</label>
+      <input id="quickDays" type="number" min="0" placeholder="e.g. 7">
+
+      <div class="row">
+        <button id="resetBtn" class="btn alt">Reset</button>
+        <button id="copyBtn" class="btn alt">Copy</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Converted Salesforce comment</label>
+      <div class="output" id="generated">#call —</div>
+    </div>
+  </div>
+
+  <footer>
+    <button class="btn" onclick="downloadHTML()">Download HTML</button>
+  </footer>
+</div>
+
+<script>
+const { DateTime } = luxon;
+let originalDT = null;
+let lastDaysValue = 0;
+
+function generateComment() {
+  const baseZone = document.getElementById('baseZone').value;
+  const date = document.getElementById('targetDate').value;
+  const time = document.getElementById('targetTime').value;
+
+  if (!date || !time) {
+    document.getElementById('generated').innerText = "Select date and time first.";
+    return;
+  }
+
+  const inputDT = DateTime.fromISO(`${date}T${time}`, { zone: 'local' }).setZone(baseZone, { keepLocalTime: true });
+
+  if (!originalDT) originalDT = inputDT;
+
+  const now = DateTime.now().setZone(baseZone);
+  const diffMinutes = Math.round(inputDT.diff(now, 'minutes').minutes);
+  const formatted = inputDT.toFormat("fff");
+
+  const output = diffMinutes > 0
+    ? `#call ${diffMinutes}\n(${formatted} ${baseZone})`
+    : "Selected time is in the past.";
+
+  document.getElementById('generated').innerText = output;
+  return diffMinutes; // for copy button
+}
+
+// Update date/time instantly when typing days
+document.getElementById('quickDays').addEventListener('input', () => {
+  const days = parseInt(document.getElementById('quickDays').value);
+  if (isNaN(days)) return;
+
+  const baseZone = document.getElementById('baseZone').value;
+
+  if (!originalDT) {
+    const date = document.getElementById('targetDate').value;
+    const time = document.getElementById('targetTime').value;
+    if (!date || !time) return;
+    originalDT = DateTime.fromISO(`${date}T${time}`, { zone: 'local' }).setZone(baseZone, { keepLocalTime: true });
+  }
+
+  const newDT = originalDT.plus({ days: days });
+  document.getElementById('targetDate').value = newDT.toISODate();
+  document.getElementById('targetTime').value = newDT.toFormat("HH:mm");
+
+  lastDaysValue = days;
+  generateComment();
+});
+
+document.getElementById('targetDate').addEventListener('change', () => { originalDT = null; generateComment(); });
+document.getElementById('targetTime').addEventListener('change', () => { originalDT = null; generateComment(); });
+document.getElementById('baseZone').addEventListener('change', generateComment);
+
+// Copy only "#call <minutes>" line
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const fullText = document.getElementById('generated').innerText;
+  const match = fullText.match(/#call \d+/);
+  if (match) {
+    navigator.clipboard.writeText(match[0]).then(() => alert("Copied!"));
+  }
+});
+
+// Reset all inputs and outputs
+document.getElementById('resetBtn').addEventListener('click', () => {
+  document.getElementById('targetDate').value = '';
+  document.getElementById('targetTime').value = '';
+  document.getElementById('quickDays').value = '';
+  document.getElementById('generated').innerText = '#call —';
+  originalDT = null;
+  lastDaysValue = 0;
+});
+
+// Download HTML
+function downloadHTML() {
+  const element = document.createElement('a');
+  const file = new Blob([document.documentElement.outerHTML], { type: 'text/html' });
+  element.href = URL.createObjectURL(file);
+  element.download = "CallCode.html";
+  document.body.appendChild(element);
+  element.click();
+  document.body.removeChild(element);
+}
+</script>
+</body>
+</html>
